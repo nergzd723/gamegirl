@@ -51,13 +51,25 @@ class GGCPU:
         instruction = self.getInstruction()
         nn = self.memory.readb(self.registers.pc+2) << 8 | self.memory.readb(self.registers.pc+1)
         n = self.memory.readb(self.registers.pc+1)
+        HACK = False
         sys.stdout.write(hex(self.registers.pc)+": ")
         if instruction == 0x0:
             print("NOP")
+            print(self.memory.memory)
+            print(hex(n), hex(nn), hex(self.getInstruction()))
+            while True:
+                pass
             self.updatePC(1)
         elif instruction == 0xdf:
             print("RST 18")
             self.updatePC(1)
+            self.memory.stack.append(self.registers.pc)
+            self.registers.pc = 0x18
+        elif instruction == 0xef:
+            print("RST 28")
+            self.updatePC(1)
+            self.memory.stack.append(self.registers.pc)
+            self.registers.pc = 0x28
         elif instruction == 0xf3:
             print("DI")
             self.memory.writeb(0xFFFF, 0)
@@ -71,6 +83,14 @@ class GGCPU:
         elif instruction == 0x6:
             print("LD B, n")
             self.registers.b = n
+            self.updatePC(2)
+        elif instruction == 0x2e:
+            print("LD L, n")
+            self.registers.l = n
+            self.updatePC(2)
+        elif instruction == 0x26:
+            print("LD H, n")
+            self.registers.h = n
             self.updatePC(2)
         elif instruction == 0x11:
             print("LD DE, nn")
@@ -90,6 +110,67 @@ class GGCPU:
             print("LD A, B")
             self.registers.a = self.registers.b
             self.updatePC(1)
+        elif instruction == 0x67:
+            print("LD H, A")
+            self.registers.h = self.registers.a
+            self.updatePC(1)
+        elif instruction == 0x7b:
+            print("LD A, E")
+            self.registers.a = self.registers.e
+            self.updatePC(1)
+        elif instruction == 0x7c:
+            print("LD A, H")
+            self.registers.a = self.registers.h
+            self.updatePC(1)
+        elif instruction == 0x7a:
+            print("LD A, D")
+            self.registers.a = self.registers.d
+            self.updatePC(1)
+        elif instruction == 0x7d:
+            print("LD A, L")
+            self.registers.a = self.registers.l
+            self.updatePC(1)
+        elif instruction == 0x6f:
+            print("LD L, A")
+            self.registers.l = self.registers.a
+            self.updatePC(1)
+        elif instruction == 0x50:
+            print("LD D, B")
+            self.registers.d = self.registers.b
+            self.updatePC(1)
+        elif instruction == 0x40:
+            print("LD B, B")
+            self.registers.b = self.registers.b
+            self.updatePC(1)
+        elif instruction == 0x41:
+            print("LD B, C")
+            self.registers.b = self.registers.c
+            self.updatePC(1)
+        elif instruction == 0x16:
+            print("LD D, n")
+            self.registers.d = n
+            self.updatePC(2)
+        elif instruction == 0x87:
+            print("ADD A, A")
+            if (self.registers.a & 0xF) + (self.registers.a & 0xF) > 0xF:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.registers.a = self.registers.a + self.registers.a
+            if self.registers.a > 0xFF:
+                self.registers.flag_carry = True
+                self.registers.a &= 0xFF
+            else:
+                self.registers.flag_carry = False
+            if self.registers.a == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x79:
+            print("LD A, C")
+            self.registers.a = self.registers.c
+            self.updatePC(1)
         elif instruction == 0xb1:
             print("OR C")
             self.registers.a |= self.registers.c
@@ -101,13 +182,24 @@ class GGCPU:
             self.registers.flag_hc = True
             self.registers.flag_carry = False
             self.updatePC(1)
+        elif instruction == 0xa6:
+            print("AND (HL)")
+            self.registers.a &= self.memory.readb(self.registers.hl_read())
+            if self.registers.a:
+                self.registers.flag_zero = True # REVERSE ME PLZ
+            else:
+                self.registers.flag_zero = False # REVERSE ME
+            self.registers.flag_sub = False
+            self.registers.flag_hc = False
+            self.registers.flag_carry = False
+            self.updatePC(1)
         elif instruction == 0xa7:
             print("AND A")
             self.registers.a &= self.registers.a
             if self.registers.a:
-                self.registers.flag_zero = False
+                self.registers.flag_zero = True # REVERSE ME PLZ
             else:
-                self.registers.flag_zero = True
+                self.registers.flag_zero = False # REVERSE ME
             self.registers.flag_sub = False
             self.registers.flag_hc = False
             self.registers.flag_carry = False
@@ -128,6 +220,22 @@ class GGCPU:
             # FIXME
             self.registers.de_write(self.registers.de_read()+1)
             self.updatePC(1)
+        elif instruction == 0x35:
+            print("DEC, (HL)")
+            n = self.memory.readb(self.registers.hl_read())
+            if n - 1 < 0xFF:
+                n &= 0xFF
+            n = n-1
+            self.memory.writeb(self.registers.hl_read(), n)
+            self.updatePC(1)
+        elif instruction == 0x34:
+            print("INC, (HL)")
+            n = self.memory.readb(self.registers.hl_read())
+            if n + 1 > 0xFF:
+                n &= 0xFF
+            n = n+1
+            self.memory.writeb(self.registers.hl_read(), n)
+            self.updatePC(1)
         elif instruction == 0x0b:
             print("DEC BC")
             self.registers.bc_write(self.registers.bc_read()-1)
@@ -136,11 +244,24 @@ class GGCPU:
             print("LD a, (de)")
             self.registers.a = self.memory.readb(self.registers.de_read())
             self.updatePC(1)
+        elif instruction == 0x0a:
+            print("LD a, (bc)")
+            self.registers.a = self.memory.readb(self.registers.bc_read())
+            self.updatePC(1)
+        elif instruction == 0x5e:
+            print("LD E, (HL)")
+            self.registers.e = self.memory.readb(self.registers.hl_read())
+            self.updatePC(1)
+        elif instruction == 0xcf:
+            print("RST 8")
+            self.updatePC(1)
+            self.memory.stack.append(self.registers.pc)
+            self.registers.pc = 0x8
         elif instruction == 0x20:
             print("JR NZ, n")
-            self.updatePC(2)
             if not self.registers.flag_zero:
                 self.updatePC((n ^ 0x80) - 0x80)
+            self.updatePC(2)
         elif instruction == 0x57:
             print("LD D, A")
             self.registers.d = self.registers.a
@@ -149,12 +270,16 @@ class GGCPU:
             print("LD E, A")
             self.registers.e = self.registers.a
             self.updatePC(1)
-        elif instruction == 0xd5:
+        elif instruction == 0xd4:
             print("CALL NC, nn")
             self.updatePC(3)
             if not self.registers.flag_carry:
                 self.memory.stack.append(self.registers.pc)
                 self.registers.pc = nn
+        elif instruction == 0xd5:
+            print("PUSH DE")
+            self.memory.stack.append(self.registers.de_read())
+            self.updatePC(1)
         elif instruction == 0xcd:
             print("CALL nn")
             self.updatePC(3)
@@ -172,7 +297,10 @@ class GGCPU:
                 self.registers.flag_carry = False
             self.registers.a = self.registers.a & 0xFF
             self.updatePC(1)
-
+        elif instruction == 0xc5:
+            print("PUSH bc")
+            self.memory.stack.append(self.registers.bc_read())
+            self.updatePC(1)
         elif instruction == 0xe5:
             print("PUSH HL")
             self.memory.stack.append(self.registers.hl_read())
@@ -194,16 +322,23 @@ class GGCPU:
             print("JR n")
             self.updatePC(2)
             self.updatePC((n ^ 0x80) - 0x80)
-            print((n ^ 0x80) - 0x80)
             if (n ^ 0x80) - 0x80 == -2:
                 print("infinite loop")
                 while True:
                     pass
-            with open("vram.bin", "wb+") as a:
-                i = 0
-                while i < 0x2000:
-                    a.write(self.memory.memory[i+0x8000].to_bytes(1, "little"))
-                    i+=1
+        elif instruction == 0x07:
+            print("RLC A")
+            self.registers.a = (self.registers.a << 1) + (self.registers.a >> 7)
+            if self.registers.a == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            if self.registers.a > 0xFF:
+                self.registers.a &= 0xFF
+                self.registers.flag_carry = True
+            else:
+                self.registers.flag_carry = False
+            self.updatePC(1)
         elif instruction == 0x3e:
             print("LD a, n")
             self.registers.a = n
@@ -251,6 +386,29 @@ class GGCPU:
             print("INC BC")
             # FIXME
             self.registers.bc_write(self.registers.bc_read()+1)
+            if self.registers.bc_read() > 0xFFFF:
+                self.registers.flag_carry = True
+                self.registers.bc_write(self.registers.bc_read() & 0xFFFF)
+            else:
+                self.registers.flag_carry = False
+            if self.registers.bc_read() == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x23:
+            print("INC HL")
+            # FIXME
+            self.registers.hl_write(self.registers.hl_read()+1)
+            if self.registers.hl_read() > 0xFFFF:
+                self.registers.flag_carry = True
+                self.registers.hl_write(self.registers.hl_read() & 0xFFFF)
+            else:
+                self.registers.flag_carry = False
+            if self.registers.hl_read() == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
             self.updatePC(1)
         elif instruction == 0x02:
             print("LD (BC), A")
@@ -263,7 +421,36 @@ class GGCPU:
             else:
                 self.registers.flag_hc = False
             self.registers.c += 1
+            if self.registers.c > 0xFF:
+                self.registers.c &= 0xFF
+                self.registers.flag_carry = True
+            else:
+                self.registers.flag_carry = False
             if self.registers.c == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x2c:
+            print("INC L")
+            if (self.registers.l & 0xF) + (1 & 0xF) > 0xF:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.registers.l += 1
+            if self.registers.l == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x3c:
+            print("INC A")
+            if (self.registers.a & 0xF) + (1 & 0xF) > 0xF:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.registers.a += 1
+            if self.registers.a == 0:
                 self.registers.flag_zero = True
             else:
                 self.registers.flag_zero = False
@@ -275,6 +462,11 @@ class GGCPU:
             else:
                 self.registers.flag_hc = False
             self.registers.c -= 1
+            if self.registers.c < 0:
+                self.registers.flag_carry = True
+                self.registers.c &= 0xFF
+            else:
+                self.registers.flag_carry = False
             if self.registers.c == 0:
                 self.registers.flag_zero = True
             else:
@@ -288,7 +480,6 @@ class GGCPU:
         elif instruction == 0xe9:
             print("JP (HL)")
             self.registers.pc = self.registers.hl_read()
-            self.updatePC(1)
         elif instruction == 0xfa:
             print("LD A, (nn)")
             self.registers.a = self.memory.readb(nn)
@@ -334,13 +525,7 @@ class GGCPU:
             self.updatePC(1)
         elif instruction == 0x76:
             print("HALT")
-            with open("vram.bin", "wb+") as a:
-                i = 0
-                while i < 0x2000:
-                    a.write(self.memory.vram[i].to_bytes(1, "little"))
-                    i+=1
-            while True:
-                pass
+            self.updatePC(1)
         elif instruction == 0xc6:
             print("ADD A, n")
             if ((self.registers.a & 0xF) + (n & 0xF)) > 0xF:
@@ -429,9 +614,29 @@ class GGCPU:
             print("LDH (C), A")
             self.memory.writeb(self.registers.c + 0xFF00, self.registers.a)
             self.updatePC(1)
+        elif instruction == 0xb0:
+            print("OR B")
+            self.registers.a |= self.registers.b
+            self.updatePC(1)
+        elif instruction == 0xb2:
+            print("OR D")
+            self.registers.a |= self.registers.d
+            self.updatePC(1)
+        elif instruction == 0xa9:
+            print("XOR C")
+            self.registers.a = self.registers.a ^ self.registers.c
+            self.updatePC(1)
+        elif instruction == 0xa1:
+            print("AND C")
+            self.registers.a = self.registers.a & self.registers.c
+            self.updatePC(1)
         elif instruction == 0x7e:
             print("LD A, (HL)")
             self.registers.a = self.memory.readb(self.registers.hl_read())
+            self.updatePC(1)
+        elif instruction == 0x56:
+            print("LD D, (HL)")
+            self.registers.d = self.memory.readb(self.registers.hl_read())
             self.updatePC(1)
         elif instruction == 0x12:
             print("LD (DE), A")
@@ -443,8 +648,30 @@ class GGCPU:
                 self.registers.flag_hc = True
             else:
                 self.registers.flag_hc = False
-            self.registers.b -= self.registers.b
+            self.registers.b -= 1
+            if self.registers.b < 0:
+                self.registers.flag_carry = True
+                self.registers.b &= 0xFF
+            else:
+                self.registers.flag_carry = False
             if self.registers.b == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x25:
+            print("DEC H")
+            if (self.registers.h & 0xF) - (1 & 0xF) < 0:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.registers.h -= 1
+            if self.registers.h < 0:
+                self.registers.flag_carry = True
+                self.registers.h &= 0xFF
+            else:
+                self.registers.flag_carry = False
+            if self.registers.h == 0:
                 self.registers.flag_zero = True
             else:
                 self.registers.flag_zero = False
@@ -456,6 +683,23 @@ class GGCPU:
             else:
                 self.registers.flag_hc = False
             self.registers.a = self.registers.a + self.registers.b
+            if self.registers.a > 0xFF:
+                self.registers.flag_carry = True
+                self.registers.a = self.registers.a & 0xFF
+            else:
+                self.registers.flag_carry = False
+            if self.registers.a == 0:
+                self.registers.flag_zero = True
+            else:
+                self.registers.flag_zero = False
+            self.updatePC(1)
+        elif instruction == 0x81:
+            print("ADD A, C")
+            if ((self.registers.a & 0xF) + (self.registers.c & 0xF)) > 0xF:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.registers.a = self.registers.a + self.registers.c
             if self.registers.a > 0xFF:
                 self.registers.flag_carry = True
                 self.registers.a = self.registers.a & 0xFF
@@ -480,6 +724,10 @@ class GGCPU:
             self.registers.a = (a & 0xFF00) >> 8
             self.registers.f = a & 0xFF
             # well, I can't do that...
+            self.updatePC(1)
+        elif instruction == 0xc1:
+            print("POP BC")
+            self.registers.bc_write(self.memory.stack.pop())
             self.updatePC(1)
         elif instruction == 0x04:
             print("INC B")
@@ -552,22 +800,48 @@ class GGCPU:
                 self.registers.pc = self.memory.stack.pop()
             else:
                 self.updatePC(1)
+        elif instruction == 0xc8:
+            print("RET Z")
+            if self.registers.flag_zero:
+                self.registers.pc = self.memory.stack.pop()
+            else:
+                self.updatePC(1)
         elif instruction == 0xfe:
             print("CP n")
             self.registers.flag_sub = True
             if self.registers.a == n:
-                self.registers.flag_zero = True
+                self.registers.flag_zero = False # swap me
             else:
-                self.registers.flag_zero = False
+                self.registers.flag_zero = True # swap me #### WORKAROUND FOR IO PORT READS, they are not implemented :(
             if n > self.registers.a:
-                self.registers.flag_carry = True # swap me
+                self.registers.flag_carry = True
             else:
-                self.registers.flag_carry = False # swap me
+                self.registers.flag_carry = False
             if n & 0x0f > self.registers.a & 0x0f:
                 self.registers.flag_hc = True
             else:
                 self.registers.flag_hc = False
             self.updatePC(2)
+        elif instruction == 0xb9:
+            print("CP C")
+            self.registers.flag_sub = True
+            if self.registers.a == self.registers.c:
+                self.registers.flag_zero = True # swap me
+            else:
+                self.registers.flag_zero = False # swap me
+            if self.registers.c > self.registers.a:
+                self.registers.flag_carry = True
+            else:
+                self.registers.flag_carry = False
+            if self.registers.c & 0x0f > self.registers.a & 0x0f:
+                self.registers.flag_hc = True
+            else:
+                self.registers.flag_hc = False
+            self.updatePC(1)
+        elif instruction == 0x2f:
+            print("CPL")
+            self.registers.a = ~self.registers.a & 0xFF
+            self.updatePC(1)
         elif instruction == 0xcb: #PREFIXED INSTRUCTION
             self.updatePC(1)
             print("PREFIXED INSTRUCTION")
@@ -580,6 +854,23 @@ class GGCPU:
                 print("SET 3, (HL)")
                 n = self.memory.readb(self.registers.hl_read())
                 self.memory.writeb(self.registers.hl_read(), self.setb(3, n))
+                self.updatePC(1)
+            elif instruction == 0x37:
+                print("SWAP A")
+                self.registers.a = ((self.registers.a) & 0x0F0F) & ((self.registers.a & 0x0F0F) << 4)
+                self.updatePC(1)
+            elif instruction == 0x3F:
+                print("SRL A")
+                self.registers.a = self.registers.a >> 1
+                if self.registers.a == 0:
+                    self.registers.flag_zero = True
+                else:
+                    self.registers.flag_zero = False
+                if self.registers.a > 0xFF:
+                    self.registers.a &= 0xFF
+                    self.registers.flag_carry = True
+                else:
+                    self.registers.flag_carry = False
                 self.updatePC(1)
             elif instruction == 0x27:
                 print("SLA A")
@@ -600,18 +891,22 @@ class GGCPU:
 class GGMemory:
     def __init__(self):
         self.memory = [0]*0x10000 # 0xFFFF
-        self.vram = [0]* 0x2000 # 0x2000 of VRAM
-        self.OAM = [0] * 0xFF # 0xFF of OAM
-        self.iomem = [0] * 0x7F # 0x7F of I/O registers
+        self.vram = [0]* (0x2000+1) # 0x2000 of VRAM
+        self.OAM = [0] * (0xFF+1) # 0xFF of OAM
+        self.iomem = [0] * (0x7F+1) # 0x7F of I/O registers
         self.stack = []
     def readb(self, address):
         if address >= 0x8000 and address <= 0x9FFF:
+            print("READ VRAM")
             return self.vram[address - 0x8000]
         elif address >= 0xFE00 and address <= 0xFE9F:
+            print("READ OAM")
             return self.OAM[address - 0xFE00] 
         elif address >= 0xFF00 and address <= 0xFF7F:
+            print("READ IOMEM")
             return self.iomem[address - 0xFF00]
         elif address >= 0xE000 and address <= 0xFDFF:
+            print("READ ECHO")
             return self.memory[address - 0x2000] # ECHO RAM
         else:
             return self.memory[address]
@@ -627,11 +922,29 @@ class GGMemory:
         else:
             self.memory[address] = val
 class GGIO:
-    def __init__(self, iomem):
+    def __init__(self, iomem, vram):
         self.memory = iomem
+        self.vmemory = vram
         self.hz = 60
+        self.lcdc = 0x40
+        self.stat = 0x41
+        self.scy = 0x42
+        self.scx = 0x43
         self.ly_reg = 0x44
+        self.lyc = 0x45
+        self.dma = 0x46
+        self.bgp = 0x47
+        self.obp0 = 0x48
+        self.gbp2 = 0x49
+        self.wy = 0x4A
+        self.wx = 0x4B
         self.startTimers()
+        self.tilecache = []
+    def updateTile(self, address):
+        addr &= 0x1FFE
+        tile = (addr >> 4) & 511
+        y = (addr >> 1) & 7
+        
     def update_ly_reg(self):
         if self.memory[self.ly_reg] < 153:
             self.memory[self.ly_reg] += 1
@@ -646,17 +959,46 @@ class Machine:
     def __init__(self):
         self.memory = GGMemory()
         self.cpu = GGCPU(self.memory)
-        self.io = GGIO(self.memory.iomem)
+        self.io = GGIO(self.memory.iomem, self.memory.vram)
     def loadROM(self, file):
         with open(file, "rb") as h:
             buf = h.read()
             for index, i in enumerate(buf):
                 self.memory.memory[index] = i
     def Execute(self):
+        last_command = ""
         while True:
-            self.cpu.step()
-            self.io.process()
+            i = input(">>> ")
+            if i == "":
+                i = last_command
+            last_command = i
+            if i == "c":
+                try:
+                    while True:
+                        self.cpu.step()
+                        self.io.process()
+                except KeyboardInterrupt:
+                    continue
+            if i[:3] == "set":
+                targetRegister = i[4]
+                targetValue = i[5:]
+                exec("self.cpu.registers.{} = {}".format(targetRegister, targetValue))
+            if i[:4] == "dump":
+                print(i[5:])
+                if i[5:] == "vram":
+                    print("dumped VRAM into vram.bin")
+                    with open("vram.bin", "wb+") as a:
+                        i = 0
+                        while i < 0x2000:
+                            a.write(self.memory.vram[i].to_bytes(1, "little"))
+                            i+=1
+            if i == "r":
+                print("REGISTER DUMP\na---- {}\nb---- {}\nc---- {}\nd---- {}\ne---- {}\nh---- {}\nl---- {}".format(hex(self.cpu.registers.a), hex(self.cpu.registers.b), hex(self.cpu.registers.c), hex(self.cpu.registers.d), hex(self.cpu.registers.e), hex(self.cpu.registers.h), hex(self.cpu.registers.l)))
+            if i == "s":
+                self.cpu.step()
+                self.io.process()
+
 if __name__ == "__main__":
     m = Machine()
-    m.loadROM("hello-world.gb")
+    m.loadROM("drmario.gb")
     m.Execute()
